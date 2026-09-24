@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aposma"
+version = "0.1.0"
+description = "Local-first code intelligence engine for AI-assisted software maintenance"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+server = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "PyJWT[crypto]>=2.9"
+]
+
+[project.scripts]
+aposma = "codelens.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["codelens*"]
