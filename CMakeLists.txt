@@ -20,25 +20,9 @@ add_executable(aposma-analyzer analyzer/src/main.cpp)
 
 target_compile_options(aposma-analyzer PRIVATE -Wall -Wextra -Wpedantic)
 
-llvm_map_components_to_libnames(LLVM_LIBS support core option)
-
 target_link_libraries(aposma-analyzer PRIVATE
-    clangTooling
-    clangBasic
-    clangASTMatchers
-    clangAST
-    clangFrontend
-    clangSerialization
-    clangParse
-    clangSema
-    clangEdit
-    clangAnalysis
-    clangRewrite
-    clangLex
-    clangDriver
-    clangToolingCore
-    clangIndex
-    ${LLVM_LIBS}
+    clang-cpp
+    LLVM
 )
 
 install(TARGETS aposma-analyzer RUNTIME DESTINATION bin)
