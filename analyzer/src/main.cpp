@@ -67,7 +67,7 @@ static llvm::cl::opt<string> GCCToolchain(
 // ============================================================================
 
 struct FunctionInfo {
-  string key;
+  string key;            // Canonical Clang USR (Unified Symbol Resolution)
   string name;
   string qualifiedName;
   string file;
@@ -75,7 +75,7 @@ struct FunctionInfo {
   unsigned endLine = 0;
   string returnType;
   unsigned parameterCount = 0;
-  unsigned controlCount = 0;
+  unsigned controlCount = 0;  // Accurate Cyclomatic Complexity metric
   unsigned arrowMemberCount = 0;
   set<string> calls;
   set<string> pointerVariables;
@@ -121,6 +121,7 @@ static string fileOf(SourceLocation Loc, SourceManager &SM) {
   return Presumed.getFilename();
 }
 
+// Generates a canonical Clang USR identifier for functions
 static string functionKey(const FunctionDecl &FD) {
   llvm::SmallString<128> Buff;
   if (!clang::index::generateUSRForDecl(&FD, Buff)) {
@@ -129,6 +130,7 @@ static string functionKey(const FunctionDecl &FD) {
   return FD.getQualifiedNameAsString();
 }
 
+// Macro-safe source text extraction
 static string sourceTextFor(const Decl &D, SourceManager &SM, const LangOptions &LO) {
   SourceRange Range = D.getSourceRange();
   CharSourceRange CharRange = Lexer::makeFileCharRange(
@@ -152,6 +154,7 @@ public:
   void run(const MatchFinder::MatchResult &Result) override {
     SourceManager &SM = *Result.SourceManager;
 
+    // --- FUNCTION DEFINITIONS ---
     if (const auto *FD = Result.Nodes.getNodeAs<FunctionDecl>("function")) {
       if (!FD->isThisDeclarationADefinition() || FD->isImplicit() ||
           SM.isInSystemHeader(FD->getLocation()))
@@ -172,6 +175,7 @@ public:
       return;
     }
 
+    // --- CLASS / STRUCT DEFINITIONS ---
     if (const auto *RD = Result.Nodes.getNodeAs<CXXRecordDecl>("record")) {
       if (!RD->isThisDeclarationADefinition() || RD->isImplicit() ||
           SM.isInSystemHeader(RD->getLocation()))
@@ -187,6 +191,7 @@ public:
       return;
     }
 
+    // --- LOCAL POINTER VARIABLES ---
     if (const auto *Var = Result.Nodes.getNodeAs<VarDecl>("localVar")) {
       if (SM.isInSystemHeader(Var->getLocation()) || !Var->getType()->isPointerType())
         return;
@@ -198,6 +203,7 @@ public:
       return;
     }
 
+    // --- FUNCTION CALLS ---
     if (const auto *Call = Result.Nodes.getNodeAs<CallExpr>("call")) {
       const auto *Caller = Result.Nodes.getNodeAs<FunctionDecl>("caller");
       const auto *Callee = Result.Nodes.getNodeAs<FunctionDecl>("callee");
@@ -212,6 +218,7 @@ public:
       return;
     }
 
+    // --- POINTER MEMBER ACCESSES (->) ---
     if (const auto *Arrow = Result.Nodes.getNodeAs<MemberExpr>("arrow")) {
       const auto *Owner = Result.Nodes.getNodeAs<FunctionDecl>("arrowOwner");
       if (!Owner || Owner->isImplicit() || SM.isInSystemHeader(Arrow->getExprLoc()))
@@ -229,6 +236,7 @@ public:
       return;
     }
 
+    // --- CONTROL FLOW METRICS ---
     if (Result.Nodes.getNodeAs<Stmt>("control")) {
       if (const auto *Owner = Result.Nodes.getNodeAs<FunctionDecl>("controlOwner")) {
         if (!Owner->isImplicit()) {
@@ -257,6 +265,7 @@ static void finalizeFindings(GlobalState &State) {
 
     unsigned lineCount = (F.endLine >= F.line) ? (F.endLine - F.line + 1) : 0;
 
+    // Long Function Check
     if (lineCount > 80) {
       State.findings.push_back({
           "long-function-" + F.key,
@@ -270,6 +279,7 @@ static void finalizeFindings(GlobalState &State) {
       });
     }
 
+    // Excess Parameters Check
     if (F.parameterCount > 6) {
       State.findings.push_back({
           "too-many-params-" + F.key,
@@ -283,6 +293,7 @@ static void finalizeFindings(GlobalState &State) {
       });
     }
 
+    // Cyclomatic Complexity Check
     if (F.controlCount > 12) {
       State.findings.push_back({
           "high-branching-" + F.key,
@@ -296,6 +307,7 @@ static void finalizeFindings(GlobalState &State) {
       });
     }
 
+    // Heuristic Null Dereference Guard Check
     for (const auto &Used : F.pointerUses) {
       if (!F.pointerVariables.count(Used))
         continue;
@@ -358,6 +370,7 @@ public:
                    hasAncestor(functionDecl(isDefinition()).bind("arrowOwner"))).bind("arrow"),
         &CollectorImpl);
 
+    // Accurate Cyclomatic Complexity Matching
     Finder.addMatcher(
         stmt(
             anyOf(
@@ -480,8 +493,8 @@ int main(int argc, const char **argv) {
   if (!GCCToolchain.empty()) {
     const string Argument = "--gcc-toolchain=" + GCCToolchain;
     Tool.appendArgumentsAdjuster(
-        getInsertArgumentAdjuster(Argument.c_str(), ArgumentInsertPosition::BEGIN));
-  }
+      getInsertArgumentAdjuster(Argument.c_str(), ArgumentInsertPosition::BEGIN));
+    }
 
   ActionFactory Factory(State);
   const int Result = Tool.run(&Factory);
@@ -490,6 +503,8 @@ int main(int argc, const char **argv) {
 
   finalizeFindings(*State);
 
+  
+// JSON Construction
   llvm::json::Object Root;
   Root["tool"] = "aposma-analyzer";
   Root["version"] = "0.2.0";
@@ -499,7 +514,6 @@ int main(int argc, const char **argv) {
     Functions.push_back(functionJson(Entry.second));
   }
   Root["functions"] = move(Functions);
-
   llvm::json::Array Records;
   for (const auto &Entry : State->records) {
     Records.push_back(recordJson(Entry.second));
@@ -522,6 +536,7 @@ int main(int argc, const char **argv) {
   }
   Root["edges"] = move(Edges);
 
+  // Output Dispatch
   if (!OutputFile.empty()) {
     error_code EC;
     llvm::raw_fd_ostream OS(OutputFile, EC);
