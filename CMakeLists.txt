@@ -27,7 +27,7 @@ target_compile_options(aposma-analyzer PRIVATE
 
 target_link_libraries(aposma-analyzer PRIVATE
     clang-cpp
-    LLVM::Support
+    LLVM
 )
 
 install(TARGETS aposma-analyzer RUNTIME DESTINATION bin)
