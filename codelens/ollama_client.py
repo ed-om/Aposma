@@ -61,9 +61,24 @@ def _post_json(url: str, payload: dict[str, Any], timeout: int) -> dict[str, Any
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            data = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise OllamaError(str(exc)) from exc
+    if not isinstance(data, dict):
+        raise OllamaError("Ollama returned a non-object JSON response")
+    return data
+
+
+def _get_json(url: str, timeout: int = 3) -> dict[str, Any]:
+    request = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise OllamaError(str(exc)) from exc
+    if not isinstance(data, dict):
+        raise OllamaError("Ollama returned a non-object JSON response")
+    return data
 
 
 def generate(settings: Settings, system: str, prompt: str, json_mode: bool = True) -> str:
@@ -72,9 +87,7 @@ def generate(settings: Settings, system: str, prompt: str, json_mode: bool = Tru
         "system": system,
         "prompt": prompt,
         "stream": False,
-        "options": {
-            "temperature": 0.1,
-        },
+        "options": {"temperature": 0.1},
     }
     if json_mode:
         payload["format"] = "json"
@@ -85,13 +98,43 @@ def generate(settings: Settings, system: str, prompt: str, json_mode: bool = Tru
     return text.strip()
 
 
-def is_available(settings: Settings) -> bool:
+def health(settings: Settings) -> dict[str, Any]:
+    """Report API reachability and whether the configured model is installed."""
     try:
-        request = urllib.request.Request(f"{settings.ollama_url.rstrip('/')}/api/tags", method="GET")
-        with urllib.request.urlopen(request, timeout=3) as response:
-            return response.status == 200
-    except Exception:  # noqa: BLE001
-        return False
+        data = _get_json(f"{settings.ollama_url.rstrip('/')}/api/tags")
+    except OllamaError as exc:
+        return {
+            "reachable": False,
+            "model": settings.ollama_model,
+            "model_installed": False,
+            "installed_models": [],
+            "error": str(exc),
+        }
+
+    models_data = data.get("models", [])
+    model_names = [
+        str(item.get("name") or item.get("model"))
+        for item in models_data
+        if isinstance(item, dict) and (item.get("name") or item.get("model"))
+    ] if isinstance(models_data, list) else []
+    expected = settings.ollama_model.strip()
+    installed = expected in model_names
+    # Ollama may report an implicit latest tag for models configured without one.
+    if ":" not in expected:
+        installed = installed or f"{expected}:latest" in model_names
+
+    return {
+        "reachable": True,
+        "model": expected,
+        "model_installed": installed,
+        "installed_models": model_names,
+        "error": None if installed else f"Configured model '{expected}' is not installed in Ollama.",
+    }
+
+
+def is_available(settings: Settings) -> bool:
+    state = health(settings)
+    return bool(state["reachable"] and state["model_installed"])
 
 
 def review(settings: Settings, evidence_json: str) -> str:
