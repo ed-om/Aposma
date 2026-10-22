@@ -71,15 +71,92 @@ def review_repo(repo: Path, settings: Settings, base: str | None = None, use_ai:
 def docs_repo(repo: Path, settings: Settings, use_ai: bool = True) -> dict[str, Any]:
     analysis = run_analyzer(repo, settings)
     evidence = build_evidence(repo, analysis, settings)
+    documents = fallback_documentation(analysis, repo)
+    summary = "Generated indexed Markdown documentation from the repository's C++ code structure."
+    ai_used = False
+    warning = None
+
     if use_ai and is_available(settings):
         try:
             from .ollama_client import docs as ollama_docs
+
             raw = ollama_docs(settings, compact_json(evidence))
             parsed = parse_documentation_response(raw)
-            return {"summary": parsed.get("summary", ""), "documents": parsed.get("documents", []), "evidence": evidence}
+            ai_documents = parsed.get("documents", [])
+            if not isinstance(ai_documents, list):
+                raise ValueError("Documentation response field 'documents' must be a list")
+            if not any(
+                isinstance(item, dict) and str(item.get("name") or "").strip() and str(item.get("markdown") or "").strip()
+                for item in ai_documents
+            ):
+                raise ValueError("Documentation response contained no usable Markdown pages")
+            documents = _merge_ai_documentation(documents, ai_documents)
+            summary = str(parsed.get("summary") or summary)
+            ai_used = True
         except Exception as exc:  # noqa: BLE001
-            return {"summary": f"AI documentation failed: {exc}", "documents": fallback_documentation(analysis), "evidence": evidence}
-    return {"summary": "Deterministic documentation generated from the code model.", "documents": fallback_documentation(analysis), "evidence": evidence}
+            warning = f"AI documentation was unavailable; deterministic Markdown was generated instead ({exc})."
+    elif use_ai:
+        warning = "Ollama model is unavailable; deterministic Markdown was generated instead."
+
+    # Refresh the index after AI notes have been incorporated.
+    from .docs import _index_markdown
+    for document in documents:
+        if document.get("path") == "index.md":
+            document["markdown"] = _index_markdown(repo.name, documents)
+            break
+
+    return {
+        "summary": summary,
+        "documents": documents,
+        "evidence": evidence,
+        "ai_used": ai_used,
+        "warning": warning,
+    }
+
+
+def _merge_ai_documentation(
+    deterministic: list[dict[str, str]], ai_documents: list[Any]
+) -> list[dict[str, str]]:
+    """Attach model-written notes to matched deterministic pages, keeping facts and links."""
+    result = [dict(item) for item in deterministic]
+    by_identity: dict[tuple[str, str], dict[str, str]] = {}
+    for item in result:
+        identity = (item.get("kind", "").lower(), item.get("name", "").strip().casefold())
+        by_identity[identity] = item
+
+    for index, item in enumerate(ai_documents):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        markdown = str(item.get("markdown") or "").strip()
+        if not name or not markdown:
+            continue
+        kind = str(item.get("kind") or "notes").strip().lower()
+        if kind in {"type", "record", "struct"}:
+            kind = "class"
+        if kind not in {"function", "class"}:
+            kind = "ai-notes"
+        target = by_identity.get((kind, name.casefold()))
+        if target is not None:
+            target["markdown"] = target["markdown"].rstrip() + "\n\n## AI-assisted notes\n\n" + markdown + "\n"
+            continue
+        # Unexpected names from the model are kept separately instead of being
+        # silently dropped or allowed to choose an arbitrary filesystem path.
+        from .docs import _slug
+        import hashlib
+
+        suffix = hashlib.sha1(f"{name}:{index}".encode()).hexdigest()[:8]
+        safe_name = _slug(name)
+        path = f"ai-notes/{safe_name}-{suffix}.md"
+        result.append({
+            "kind": "ai-notes",
+            "name": name,
+            "path": path,
+            "markdown": f"# {name}\n\n{markdown}\n",
+        })
+        by_identity[("ai-notes", name.casefold())] = result[-1]
+
+    return result
 
 
 def persist_review(settings: Settings, repo: Path, result: ReviewResult, evidence: dict[str, Any]) -> int:
