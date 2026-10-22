@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -87,10 +88,32 @@ def create_check_run(token: str, owner: str, repo: str, head_sha: str, summary: 
 
 
 def _clone_with_token(clone_url: str, token: str, destination: Path, ref: str) -> None:
-    # GitHub's HTTPS clone accepts an installation token as x-access-token.
-    safe_url = clone_url.replace("https://", f"https://x-access-token:{token}@", 1)
-    subprocess.run(["git", "clone", "--filter=blob:none", safe_url, str(destination)], check=True, timeout=180, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    subprocess.run(["git", "-C", str(destination), "checkout", "--detach", ref], check=True, timeout=60, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Pass the short-lived token through Git's environment-based extra header,
+    # not a clone URL that could leak through process listings or exception text.
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    credential = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"
+    env["GIT_CONFIG_VALUE_0"] = f"AUTHORIZATION: basic {credential}"
+    subprocess.run(
+        ["git", "clone", "--filter=blob:none", clone_url, str(destination)],
+        check=True,
+        timeout=180,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    subprocess.run(
+        ["git", "-C", str(destination), "checkout", "--detach", ref],
+        check=True,
+        timeout=60,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
 
 
 def handle_pull_request(payload: dict[str, Any], settings: Settings) -> dict[str, Any]:
