@@ -2,31 +2,40 @@
 
 ## Core rule
 
-The local SLM does not establish program facts. The analyzer establishes facts; the SLM interprets them.
+The local SLM does not establish program facts. The native analyzer establishes structural facts and deterministic findings; the SLM interprets the structured evidence when enabled.
 
 ```text
-C++
- ↓
-Clang AST
- ↓
-Code Knowledge Model
- ↓
-Static Analysis + Git
- ↓
-Evidence Package
- ↓
-Qwen2.5-Coder-3B-Instruct via Ollama
- ↓
-Review / Documentation
+Local folder / GitHub repository URL
+                ↓
+        Local repository workspace
+                ↓
+            Clang AST
+                ↓
+       Code Knowledge Model
+                ↓
+       Static findings + Git context
+                ↓
+          Evidence package
+            ↙          ↘
+   Deterministic pages  optional Ollama notes
+            ↘          ↙
+       Review / Markdown documentation
+                ↓
+       SQLite history / .aposma/docs/
 ```
 
 ## Boundaries
 
-- `analyzer/` is deterministic C++ analysis.
-- `codelens/` is orchestration and persistence.
-- Ollama is a replaceable model runtime.
-- GitHub integration is optional until the local workflow is stable.
+- `analyzer/` is deterministic C++ analysis implemented with Clang LibTooling.
+- `codelens/analyzer.py` finds the native executable and supplies detected compiler built-in include paths.
+- `codelens/repositories.py` resolves local source paths or clones GitHub repositories into persistent local workspaces.
+- `codelens/evidence.py` builds compact evidence from the code model and optional Git diff context.
+- `codelens/review.py` coordinates review, documentation, and deterministic fallback behavior.
+- `codelens/docs.py` creates the Markdown file tree and safely cleans up stale pages recorded in its manifest.
+- `codelens/server.py` exposes the local FastAPI API used by React.
+- `codelens/github.py` contains the optional GitHub App pull-request/check-run integration.
+- `frontend/` is the React/Vite dashboard.
 
-## Zero-budget design
+## Privacy and limitations
 
-No paid API is required. The project is usable locally.
+Repository clone, analysis, and Markdown writes occur locally. If enabled, the code evidence is submitted to the locally configured Ollama endpoint. Keep the FastAPI server bound to loopback. The current native analysis is C++-focused and does not provide a complete program proof.
