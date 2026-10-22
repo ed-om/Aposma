@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-
-project(aposma_analyzer LANGUAGES C CXX)
+project(aposma_analyzer LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,15 +18,27 @@ add_definitions(${LLVM_DEFINITIONS})
 
 add_executable(aposma-analyzer analyzer/src/main.cpp)
 
-target_compile_options(aposma-analyzer PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-)
+target_compile_options(aposma-analyzer PRIVATE -Wall -Wextra -Wpedantic)
+
+llvm_map_components_to_libnames(LLVM_LIBS support core option)
 
 target_link_libraries(aposma-analyzer PRIVATE
-    clang-cpp
-    LLVM
+    clangTooling
+    clangBasic
+    clangASTMatchers
+    clangAST
+    clangFrontend
+    clangSerialization
+    clangParse
+    clangSema
+    clangEdit
+    clangAnalysis
+    clangRewrite
+    clangLex
+    clangDriver
+    clangToolingCore
+    clangIndex
+    ${LLVM_LIBS}
 )
 
 install(TARGETS aposma-analyzer RUNTIME DESTINATION bin)
