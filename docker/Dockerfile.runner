@@ -1,0 +1,15 @@
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    clang \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# This image is intended for running repository builds/tests in isolation.
+# Mount the repository read-only wherever possible and provide a separate writable build volume.
+ENTRYPOINT ["/bin/bash"]
