@@ -88,6 +88,10 @@ def create_check_run(token: str, owner: str, repo: str, head_sha: str, summary: 
 
 
 def _clone_with_token(clone_url: str, token: str, destination: Path, ref: str) -> None:
+    # GitHub's HTTPS clone accepts an installation token as x-access-token.
+    safe_url = clone_url.replace("https://", f"https://x-access-token:{token}@", 1)
+    subprocess.run(["git", "clone", "--filter=blob:none", safe_url, str(destination)], check=True, timeout=180, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    subprocess.run(["git", "-C", str(destination), "checkout", "--detach", ref], check=True, timeout=60, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     # Pass the short-lived token through Git's environment-based extra header,
     # not a clone URL that could leak through process listings or exception text.
     env = os.environ.copy()

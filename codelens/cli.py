@@ -23,6 +23,12 @@ def cmd_review(args: argparse.Namespace) -> int:
 
     print(f"\nAposma Review — {source.get('label', repo.name)}")
     print("=" * 60)
+    repo, source = resolve_repository_source(args.path)
+    result, evidence = review_repo(repo, _settings(), args.base, not args.no_ai)
+    analysis_id = persist_review(_settings(), repo, result, evidence)
+
+    print(f"\nAposma Review — {source.get('label', repo.name)}")
+    print("=" * 60)
     if source.get("type") == "github":
         print(f"Source: {source.get('source')}\nWorkspace: {repo}")
     print(result.summary)
@@ -50,6 +56,13 @@ def cmd_docs(args: argparse.Namespace) -> int:
     paths = write_documents(repo, result["documents"], output_dir=output_dir)
     print(f"Aposma Documentation — {source.get('label', repo.name)}")
     print(result["summary"])
+    print(f"Generated {len(paths)} document(s):")
+    repo, source = resolve_repository_source(args.path)
+    result = docs_repo(repo, _settings(), not args.no_ai)
+    output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else None
+    paths = write_documents(repo, result["documents"], output_dir=output_dir)
+    print(f"Aposma Documentation — {source.get('label', repo.name)}")
+    print(result["summary"])
     if result.get("warning"):
         print(f"Warning: {result['warning']}")
     print(f"Documentation directory: {paths[0].parent if paths else (output_dir or repo / '.aposma' / 'docs')}")
@@ -61,6 +74,7 @@ def cmd_docs(args: argparse.Namespace) -> int:
 
 def cmd_analyzer(args: argparse.Namespace) -> int:
     from .analyzer import run_analyzer
+    analysis = run_analyzer(Path(args.path).resolve(), _settings())
     repo, source = resolve_repository_source(args.path)
     analysis = run_analyzer(repo, _settings())
     print(json.dumps(analysis.raw, indent=2))
@@ -75,6 +89,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="aposma", description="Aposma local-first code intelligence tool")
     parser = argparse.ArgumentParser(prog="aposma", description="Aposma local-first code intelligence tool for local folders and GitHub repositories")
     sub = parser.add_subparsers(dest="command", required=True)
 

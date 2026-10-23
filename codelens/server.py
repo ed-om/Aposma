@@ -14,6 +14,20 @@ from .github import GitHubError, handle_pull_request, verify_webhook
 from .repositories import RepositorySourceError, resolve_repository_source
 
 try:
+    from fastapi import FastAPI, Header, HTTPException, Request
+import logging
+import os
+import sqlite3
+import subprocess
+from dataclasses import asdict
+from pathlib import Path
+from typing import Any
+
+from .config import Settings
+from .github import GitHubError, handle_pull_request, verify_webhook
+from .repositories import RepositorySourceError, resolve_repository_source
+
+try:
     from fastapi import FastAPI, Header, HTTPException, Query, Request
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
@@ -22,6 +36,7 @@ except ImportError:  # pragma: no cover
     FastAPI = None
 
 if FastAPI is not None:
+    app = FastAPI(title="Aposma GitHub Webhook Server", version="0.1.0")
     logger = logging.getLogger("aposma.api")
 
     from .analyzer import AnalyzerError, find_analyzer
