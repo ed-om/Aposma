@@ -17,11 +17,11 @@ def _settings() -> Settings:
 
 
 def cmd_review(args: argparse.Namespace) -> int:
-    repo = Path(args.path).resolve()
+    repo, source = resolve_repository_source(args.path)
     result, evidence = review_repo(repo, _settings(), args.base, not args.no_ai)
     analysis_id = persist_review(_settings(), repo, result, evidence)
 
-    print(f"\nAposma Review — {repo.name}")
+    print(f"\nAposma Review — {source.get('label', repo.name)}")
     print("=" * 60)
     repo, source = resolve_repository_source(args.path)
     result, evidence = review_repo(repo, _settings(), args.base, not args.no_ai)
@@ -50,9 +50,11 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 
 def cmd_docs(args: argparse.Namespace) -> int:
-    repo = Path(args.path).resolve()
+    repo, source = resolve_repository_source(args.path)
     result = docs_repo(repo, _settings(), not args.no_ai)
-    paths = write_documents(repo, result["documents"])
+    output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else None
+    paths = write_documents(repo, result["documents"], output_dir=output_dir)
+    print(f"Aposma Documentation — {source.get('label', repo.name)}")
     print(result["summary"])
     print(f"Generated {len(paths)} document(s):")
     repo, source = resolve_repository_source(args.path)
