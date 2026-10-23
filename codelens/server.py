@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+
+from .config import Settings
+from .github import GitHubError, handle_pull_request, verify_webhook
+
+try:
+    from fastapi import FastAPI, Header, HTTPException, Request
 import logging
 import os
 import sqlite3
@@ -22,6 +29,7 @@ except ImportError:  # pragma: no cover
     FastAPI = None
 
 if FastAPI is not None:
+    app = FastAPI(title="Aposma GitHub Webhook Server", version="0.1.0")
     logger = logging.getLogger("aposma.api")
 
     from .analyzer import AnalyzerError, find_analyzer

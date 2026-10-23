@@ -93,6 +93,7 @@ def run_analyzer(repo: Path, settings: Settings) -> CodeAnalysis:
 
     compile_commands = repo / "compile_commands.json"
     cmd = [str(binary)]
+    if compile_commands.exists():
     builtin_include_dirs = _compiler_builtin_include_dirs()
     if compile_commands.exists():
         # Supply compiler built-in headers explicitly. Clang LibTooling does not
@@ -114,6 +115,15 @@ def run_analyzer(repo: Path, settings: Settings) -> CodeAnalysis:
         # CommonOptionsParser choose their compile commands.
         cmd += cpp_files
 
+    proc = subprocess.run(
+        cmd,
+        cwd=repo,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=180,
+        check=False,
+    )
     try:
         proc = subprocess.run(
             cmd,

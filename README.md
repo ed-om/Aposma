@@ -1,219 +1,231 @@
 # Aposma
 
-**Aposma** is a local-first code-intelligence engine for AI-assisted software maintenance.
+**Aposma** is a local-first C++ code-intelligence tool for repository review and Markdown documentation. It combines a Clang-based analyzer, deterministic rules, Git change context, optional local-LLM interpretation through Ollama, a Python CLI, and a small React dashboard.
 
-It analyzes **C++ repositories**, builds a machine-readable representation of their structure, runs deterministic static-analysis rules, packages the evidence, and optionally sends that evidence to a **local Qwen2.5-Coder-3B-Instruct model via Ollama** for grounded code review and documentation generation.
+## What works in this project
 
-## Project philosophy
+- **Code review:** static findings, structured evidence, optional Ollama review, and SQLite history.
+- **Markdown documentation:** generates an index, architecture summary, static findings report, and per-function / per-type pages.
+- **Repository sources:** local folders or GitHub repository URLs from both the CLI and dashboard.
+- **Persistent GitHub workspace:** GitHub repositories are cloned into a local directory so the generated docs stay available after a request finishes.
+- **React dashboard:** monochrome, pixel-inspired interface for review, docs, status, and history.
+- **GitHub App webhook foundation:** can process supported pull-request events and publish a check run when App credentials and webhook exposure are configured.
+
+The current native analyzer focuses on **C++**. Other languages are not analyzed as first-class languages yet.
+
+## Architecture
 
 ```text
-C++ source
-   ↓
-Clang AST
-   ↓
-Code Knowledge Model
-   ↓
-Static Analysis + Git Diff
-   ↓
-Evidence Package
-   ↓
-Local SLM (optional but recommended)
-   ↓
-Code Review / Documentation
+Local folder or GitHub repository URL
+                |
+                v
+    Persistent local checkout
+                |
+                v
+       Clang / AST analyzer
+                |
+                v
+    Code model + static findings
+                |
+                v
+        Evidence package
+          /         \
+   deterministic    optional Ollama
+       output          interpretation
+          \         /
+           review / Markdown docs
+                    |
+            SQLite history / .aposma/docs/
 ```
 
-The SLM is deliberately not the source of truth. Deterministic analysis produces facts; the model interprets those facts.
-
-## $0 budget
-
-The core system is local and uses open-source/free tooling:
-
-- C++20
-- LLVM/Clang LibTooling + AST Matchers
-- Python 3.11+
-- SQLite
-- Ollama
-- Qwen2.5-Coder-3B-Instruct
-- Git
-- Docker (optional, for sandboxed test execution)
-- GitHub App integration (optional until the core tool works)
-
-No paid model API is required.
-
-## Current MVP scope
-
-- C++ only
-- repository + Git diff analysis
-- AST extraction
-- call graph edges
-- deterministic findings for a small rule set
-- structured evidence package
-- local SLM integration through Ollama
-- code review output
-- documentation generation
-- SQLite history
-- CLI
-- GitHub webhook/check scaffolding
+The model is optional. Aposma can generate deterministic findings and structural Markdown without Ollama; AI-produced notes are appended to the fact-based pages when available.
 
 ## 1. Prerequisites
 
-On Ubuntu/Debian/Mint, install the development toolchain. Package names vary slightly by distro/LLVM version; you need a matching set of Clang/LLVM development packages.
+You need Python 3.11+, Git, CMake, a C++ compiler, and a Clang/LLVM development installation compatible with the analyzer sources. For the React dashboard, use Node.js and npm. Ollama is optional.
+
+On Ubuntu/Debian/Mint, a starting toolchain installation is:
 
 ```bash
 sudo apt update
 sudo apt install -y build-essential cmake git python3 python3-venv python3-pip clang llvm-dev libclang-dev libclang-cpp-dev
 ```
 
-Install Ollama separately from its official installer, then pull the model:
+On Arch Linux, install equivalent packages for `base-devel`, `cmake`, `git`, `python`, `python-pip`, `clang`, `llvm`, and the Clang/LLVM libraries and headers required by `CMakeLists.txt`. Package/library names vary with the installed LLVM version; inspect `llvm-config --cmakedir` if CMake cannot locate them.
+
+Ollama setup is optional:
 
 ```bash
 ollama pull qwen2.5-coder:3b
 ```
 
-If 3B is too slow or memory-heavy on your machine, the architecture supports swapping the model through `APOSMA_OLLAMA_MODEL`.
-
-## 2. Build the C++ analyzer
+## 2. Build the native analyzer
 
 From the repository root:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
+cmake --build build --parallel
 ```
 
-You should get:
+The expected binary is `build/aposma-analyzer`. If your binary lives elsewhere, set `APOSMA_ANALYZER_BIN` to its absolute path.
 
-```text
-build/aposma-analyzer
-```
+For repositories that need custom compiler flags, prefer a valid `compile_commands.json` file generated by CMake (`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`). The Python wrapper also tries to pass the compiler-provided built-in include directory to Clang; this helps on systems where the installed GCC and Clang versions differ.
 
-### If CMake cannot find Clang
-
-Set `LLVM_DIR` to the directory containing `LLVMConfig.cmake`, and `Clang_DIR` to the directory containing `ClangConfig.cmake` if your distro requires it.
-
-Examples vary by LLVM version, so inspect:
+## 3. Install Python dependencies
 
 ```bash
-llvm-config --cmakedir
-llvm-config --libdir
-```
-
-## 3. Install the Python package
-
-```bash
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
-python -m pip install -U pip
-pip install -e '.[dev,server]'
+python -m pip install --upgrade pip
+python -m pip install -e '.[dev,server]'
 ```
 
-## 4. Try the analyzer directly
+## 4. CLI
+
+You can pass an existing local folder, a full GitHub repository URL, or the shorthand `owner/repository`.
 
 ```bash
-./build/aposma-analyzer examples/sample_cpp/mini.cpp -- -std=c++20 -Iexamples/sample_cpp
+# Static review without the local language model
+python -m codelens.cli review examples/sample_cpp --no-ai
+
+# Review a public GitHub repository
+python -m codelens.cli review https://github.com/owner/repository --no-ai
+
+# Generate a full Markdown documentation tree without Ollama
+python -m codelens.cli docs examples/sample_cpp --no-ai
+
+# Documentation for a GitHub repository
+python -m codelens.cli docs owner/repository --no-ai
+
+# Use Ollama for review or documentation when the configured model is installed
+python -m codelens.cli review examples/sample_cpp
+python -m codelens.cli docs examples/sample_cpp
+
+# Override the default documentation output directory
+python -m codelens.cli docs examples/sample_cpp --no-ai --output-dir ./generated-docs
+
+# Inspect raw AST/model output
+python -m codelens.cli analyze examples/sample_cpp
+
+# See stored review results
+python -m codelens.cli history
 ```
 
-The analyzer prints JSON to stdout.
+The installed console entry point is `aposma` after `pip install -e .`, so `python -m codelens.cli` can be replaced with `aposma`.
 
-## 5. Run Aposma from the CLI
+### GitHub credentials
+
+Public repositories need no token. To access a private repository, export a GitHub token with read access to that repository:
 
 ```bash
-aposma review examples/sample_cpp --no-ai
+export APOSMA_GITHUB_TOKEN='YOUR_TOKEN'
+python -m codelens.cli review https://github.com/owner/private-repository --no-ai
 ```
 
-To use Ollama:
+Do not put a real token in source files, `.env.example`, screenshots, or Git commits. GitHub credentials are passed to Git through an HTTP header rather than embedded in the clone URL. If you already use a Git credential helper, its credentials may also be used.
 
-```bash
-aposma review examples/sample_cpp
-```
+GitHub clones are stored under `~/.local/share/aposma/workspaces/owner/repository` by default. Set `APOSMA_WORKSPACE_DIR` to change the root. Existing checkouts are reused to protect local changes; Aposma does not silently reset them to the remote. To update a checkout, inspect it and run `git -C /path/to/checkout pull` yourself.
 
-Environment variables:
+## 5. Generated Markdown docs
 
-```bash
-export APOSMA_OLLAMA_MODEL=qwen2.5-coder:3b
-export APOSMA_OLLAMA_URL=http://127.0.0.1:11434
-```
-
-## 6. Generate documentation
-
-```bash
-aposma docs examples/sample_cpp
-```
-
-## 7. Run tests
-
-```bash
-pytest
-```
-
-## 8. GitHub integration
-
-The server implementation is in `codelens/server.py` and the GitHub client is in `codelens/github.py`.
-
-You will eventually create a GitHub App with the minimum repository permissions necessary. For check runs, GitHub requires the Checks permission to be writable by the App. See GitHub's current Checks documentation before configuring the App. The local server can be exposed with a free tunnel during development.
-
-Start the server:
-
-```bash
-uvicorn codelens.server:app --host 127.0.0.1 --port 8000
-```
-
-Then configure the webhook URL to:
+By default, docs are written inside the selected repository:
 
 ```text
-POST /webhooks/github
+.aposma/
+└── docs/
+    ├── index.md
+    ├── architecture.md
+    ├── findings.md
+    ├── functions/
+    │   └── <function-name>.md
+    ├── types/
+    │   └── <type-name>.md
+    └── ai-notes/                 # optional extra model notes
 ```
 
-Set:
+- `index.md` links to the generated pages.
+- `architecture.md` summarizes extracted functions, records, call-graph edges, and source locations.
+- `findings.md` records deterministic static-analysis findings and their evidence.
+- `functions/*.md` and `types/*.md` document the declarations that the analyzer found.
+- If Ollama is available, its notes are added to matching pages or kept in separate `ai-notes/*.md` files.
+
+These pages are generated from the analyzer's current C++ model. They do not prove runtime behavior or guarantee that all code paths were found. Review the generated content before treating it as authoritative. A manifest tracks pages generated by Aposma so stale generated pages can be removed without deleting unrelated Markdown files in `.aposma/docs/`.
+
+Read [Documentation generation](docs/DOCUMENTATION_GENERATION.md) for implementation details.
+
+## 6. React dashboard
+
+Install the frontend dependencies:
 
 ```bash
-export APOSMA_GITHUB_APP_ID=...
-export APOSMA_GITHUB_PRIVATE_KEY_PATH=/path/to/private-key.pem
-export APOSMA_GITHUB_WEBHOOK_SECRET=...
+cd frontend
+npm install
+# If npm blocks esbuild's install script, approve it and rebuild:
+# npm install-scripts approve esbuild
+# npm rebuild esbuild
 ```
 
-The GitHub integration is intentionally separated from the local analyzer so that you can finish and evaluate the core system without needing a publicly reachable server.
+Start the backend in terminal 1, from the repository root:
 
-## 9. Development order
-
-1. Get the C++ analyzer working.
-2. Understand the AST output.
-3. Stabilize the Code Knowledge Model.
-4. Add static-analysis findings.
-5. Add Git diff context.
-6. Add the local SLM.
-7. Add documentation.
-8. Evaluate the system.
-9. Add GitHub integration last.
-
-Do **not** start with React or GitHub webhooks.
-
-## 10. Repository layout
-
-```text
-aposma/
-├── analyzer/              # C++/Clang program-analysis engine
-├── codelens/              # Python orchestration + CLI + SLM + GitHub
-├── examples/              # small demo repository/code
-├── tests/                 # Python tests
-├── docs/                  # architecture, threat model, learning map
-├── docker/                # optional sandbox image
-├── scripts/               # setup helpers
-├── CMakeLists.txt
-├── pyproject.toml
-└── README.md
+```bash
+source .venv/bin/activate
+export APOSMA_ANALYZER_BIN="$HOME/Downloads/aposma-analyzer-fix/build/aposma-analyzer"  # change to your binary
+python -m uvicorn codelens.server:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-## Research direction
+Start the dashboard in terminal 2:
 
-Aposma should eventually compare at least these configurations:
-
-```text
-A. raw code → SLM
-B. code + diff → SLM
-C. code + diff + AST → SLM
-D. code + diff + AST + static findings → SLM
-E. full structured evidence → SLM
+```bash
+cd frontend
+npm run dev
 ```
 
-Measure precision, recall, false positives, documentation accuracy, hallucination rate, and latency.
+Open `http://127.0.0.1:5173`. On Overview, enter either an absolute local path (or `examples/sample_cpp` when the server was started from the repository root) or a GitHub repository URL such as `https://github.com/owner/repository`. Review and documentation requests use the same source field.
+
+The backend stays bound to `127.0.0.1`, and the Vite dev server proxies `/api` to port 8000. Do not expose this local API to an untrusted network.
+
+Health and status endpoints:
+
+- `GET http://127.0.0.1:8000/health`
+- `GET http://127.0.0.1:8000/api/status`
+
+The dashboard shows the actual `.aposma/docs/` output directory after documentation generation. Review history is stored in SQLite at `APOSMA_DB` (default `.data/aposma.sqlite3`).
+
+## 7. Tests and validation
+
+Run Python tests and syntax checks:
+
+```bash
+python -m pytest -q
+python -m compileall -q codelens tests
+```
+
+Build the frontend:
+
+```bash
+cd frontend
+npm run build
+```
+
+Build the native analyzer using the CMake commands in section 2. See [Testing and validation](docs/TESTING.md) and [Troubleshooting](docs/TROUBLESHOOTING.md).
+
+## 8. GitHub App webhook integration
+
+The optional webhook endpoint is `POST /webhooks/github`. It requires a GitHub App, an externally reachable HTTPS endpoint for GitHub webhooks, the App installation on the target repository, and these variables:
+
+```bash
+APOSMA_GITHUB_APP_ID=...
+APOSMA_GITHUB_PRIVATE_KEY_PATH=/path/to/private-key.pem
+APOSMA_GITHUB_WEBHOOK_SECRET=...
+```
+
+This webhook feature is separate from the normal dashboard/CLI URL workflow. Public GitHub repository review and Markdown generation do not require a GitHub App.
+
+## Current limitations
+
+- Native analysis is C++-focused and requires the compiled Clang-based analyzer.
+- The quality and depth of docs depend on what the analyzer extracts; no runtime behavior is inferred with certainty.
+- GitHub checkout uses the repository's default branch initially; existing local workspace checkouts are reused and are not auto-reset or auto-pulled.
+- Private repositories need a token or working Git credential configuration.
+- AI assistance requires a locally running Ollama service and the configured model; deterministic output works without it.
