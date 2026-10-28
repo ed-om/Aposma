@@ -1,5 +1,8 @@
 # Aposma
 
+**Developer**: Edom Anteneh Alemu  
+**ID**:  CTC-1717-26  
+**Presentation link**:  https://drive.google.com/file/d/1SOMoTduMYcQ_ZK80pShA7bP-eEetla5c/view?usp=sharing  
 **Aposma** is a local-first C++ code-intelligence tool for repository review and Markdown documentation. It combines a Clang-based analyzer, deterministic rules, Git change context, optional local-LLM interpretation through Ollama, a Python CLI, and a small React dashboard.
 
 ## What works in this project
